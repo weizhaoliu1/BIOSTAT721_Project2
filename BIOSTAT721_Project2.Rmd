@@ -1,0 +1,150 @@
+---
+title: "BIOSTAT 721 Project 2"
+author: "Weizhao Liu"
+date: "2025-11-21"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE)
+
+library(dplyr)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+library(readr)
+
+```
+This report presents the data cleaning function and exploratory plots as required in BIOSTAT 721 Project 2.
+
+[GitHub repository: https://github.com/weizhaoliu1/BIOSTAT721_Project2](https://github.com/weizhaoliu1/BIOSTAT721_Project2)
+
+## Function
+
+The following function processes the daily air quality dataset by renaming variables, converting dates, removing duplicate rows, averaging multiple measurements, and setting negative pollutant values to zero, as required by the assignment.
+
+```{r}
+clean_pollutants <- function(file_path) {
+
+df <- read.csv(file_path) |>
+clean_names() |>
+rename(
+co   = daily_max_8_hour_co_concentration,
+pm25 = daily_mean_pm2_5_concentration,
+o3   = daily_max_8_hour_ozone_concentration
+) |>
+mutate(
+date = mdy(date),
+co   = ifelse(co < 0, 0, co),
+pm25 = ifelse(pm25 < 0, 0, pm25),
+o3   = ifelse(o3 < 0, 0, o3)
+) |>
+distinct() |>
+group_by(date) |>
+summarise(
+co   = mean(co, na.rm = TRUE),
+pm25 = mean(pm25, na.rm = TRUE),
+o3   = mean(o3, na.rm = TRUE)
+) |>
+arrange(date)
+
+return(df)
+}
+
+```
+
+## Run Function on Datasets
+
+```{r}
+data_2018 <- clean_pollutants("data/AQ_2018.csv")
+data_2019 <- clean_pollutants("data/AQ_2019.csv")
+data_2020 <- clean_pollutants("data/AQ_2020.csv")
+
+head(data_2018)
+head(data_2019)
+head(data_2020)
+```
+## Bind data
+```{r}
+library(dplyr)
+library(lubridate)
+
+pollution_all <- bind_rows(
+  data_2018 |> mutate(year = 2018),
+  data_2019 |> mutate(year = 2019),
+  data_2020 |> mutate(year = 2020)
+) |>
+  mutate(month = month(date))
+
+```
+The three cleaned datasets were combined into a single dataset for plotting.
+
+## Plot 1：Monthly averages with 95% CI (CO & O3)
+```{r}
+# Compute monthly summaries separately for CO and O3
+
+# CO summary
+co_monthly <- pollution_all |>
+  group_by(month) |>
+  summarise(
+    mean = mean(co, na.rm = TRUE),
+    sd   = sd(co, na.rm = TRUE),
+    n    = n(),
+    se   = sd / sqrt(n),
+    lower = mean - 1.96 * se,
+    upper = mean + 1.96 * se
+  ) |>
+  mutate(pollutant = "CO")
+
+# O3 summary
+o3_monthly <- pollution_all |>
+  group_by(month) |>
+  summarise(
+    mean = mean(o3, na.rm = TRUE),
+    sd   = sd(o3, na.rm = TRUE),
+    n    = n(),
+    se   = sd / sqrt(n),
+    lower = mean - 1.96 * se,
+    upper = mean + 1.96 * se
+  ) |>
+  mutate(pollutant = "O3")
+
+# Combine manually (base-level!)
+plot1_data <- rbind(co_monthly, o3_monthly)
+
+# Plot
+ggplot(plot1_data, aes(x = month, y = mean, color = pollutant)) +
+  geom_point(size = 2) +
+  geom_line() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  labs(
+    title = "Monthly Average CO and O3 Concentrations (Averaged Over 3 Years)",
+    x = "Month",
+    y = "Concentration",
+    color = "Pollutant"
+  ) +
+  theme_minimal()
+
+```
+
+## Plot 2（PM2.5 vs Month by Year）
+```{r}
+plot2_data <- pollution_all |>
+  group_by(year, month) |>
+  summarise(pm25 = mean(pm25, na.rm = TRUE))
+
+ggplot(plot2_data, aes(x = month, y = pm25, color = factor(year))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Monthly PM2.5 Concentrations by Year",
+    x = "Month",
+    y = "PM2.5 (ug/m3)",
+    color = "Year"
+  ) +
+  theme_minimal()
+
+```
+
